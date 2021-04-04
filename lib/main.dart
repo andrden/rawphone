@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:convert';
@@ -302,7 +303,7 @@ sg8GK6gj9xA/Dl0D+vLKASUI6wDbBpsKdv5bCusL1P2t/8cQ1gjiBUgLhQfK/zgC+eWD4nXwBuZy
 1dtu2Q==""";
 
 //List<List<dynamic>> data = [];
-List<double> recordedData = [];
+List<int> recordedData = [];
 
 class Src extends StreamAudioSource {
   Src(tag) : super(tag);
@@ -319,7 +320,8 @@ class Src extends StreamAudioSource {
     for (int i = 0; i < 8000; i++) {
       data[data.length - 8000 * 2 + i * 2] = 0;
       //data[data.length - 8000 * 2 + i * 2 + 1] = (50 + sin(i) * 50).floor();
-      data[data.length - 8000 * 2 + i * 2 + 1] = (50 + recordedData[i]).round();
+      data[data.length - 8000 * 2 + i * 2 + 1] =
+          (50 + recordedData[i] / 256).round();
     }
 
     return StreamAudioResponse(
@@ -391,17 +393,92 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   FlutterAudioCapture _plugin = new FlutterAudioCapture();
+  String myIp = '';
+  int captured = 0;
+  int writtenToClient = 0;
+  int clientReceived = 0;
+  var ipEdit = new TextEditingController(text: "192.168.0.102");
+  Socket client;
 
   // @override
   // void initState() {
   //   super.initState();
   // }
 
+  void _startClient() {
+    Socket.connect(ipEdit.text, 4567).then((socket) {
+      print('Connected to: '
+          '${socket.remoteAddress.address}:${socket.remotePort}');
+
+      //Establish the onData, and onDone callbacks
+      socket.listen((Uint8List data) {
+        clientReceived++;
+        setState(() {});
+        print("client recv from socket: len=${data.length}");
+        // print("client recv from socket: " +
+        //     new String.fromCharCodes(data).trim());
+      }, onDone: () {
+        print("Done");
+        socket.destroy();
+      });
+
+      //Send the request
+      //socket.write(indexRequest);
+    });
+  }
+
+  void _startServer() {
+    _retrieveIPAddress().then((value) {
+      print("_retrieveIPAddress $value");
+      myIp = value.address;
+      setState(() {});
+    });
+    ServerSocket.bind(InternetAddress.anyIPv4, 4567, shared: true)
+        .then((ServerSocket server) {
+      server.listen(handleClient);
+    });
+  }
+
+  void handleClient(Socket client) {
+    print('Connection from '
+        '${client.remoteAddress.address}:${client.remotePort}');
+
+    this.client = client;
+    _startCapture();
+    // client.write("Hello from simple server!\n");
+    // client.close();
+  }
+
+  Future<InternetAddress> _retrieveIPAddress() async {
+    //InternetAddress result;
+
+    int code = Random().nextInt(255);
+    var dgSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    dgSocket.readEventsEnabled = true;
+    dgSocket.broadcastEnabled = true;
+    Future<InternetAddress> ret =
+        dgSocket.timeout(Duration(milliseconds: 100), onTimeout: (sink) {
+      sink.close();
+    }).expand<InternetAddress>((event) {
+      if (event == RawSocketEvent.read) {
+        Datagram dg = dgSocket.receive();
+        if (dg != null && dg.data.length == 1 && dg.data[0] == code) {
+          dgSocket.close();
+          return [dg.address];
+        }
+      }
+      return [];
+    }).firstWhere((InternetAddress a) => a != null);
+
+    dgSocket.send([code], InternetAddress("255.255.255.255"), dgSocket.port);
+    return ret;
+  }
+
   Future<void> _startCapture() async {
-    print(wavData.substring(0, 300).replaceAll('\n', '').replaceAll(' ', ''));
-    print(base64.decoder
-        .convert(wavData.replaceAll('\n', '').replaceAll(' ', ''))
-        .length);
+    // print(wavData.substring(0, 300).replaceAll('\n', '').replaceAll(' ', ''));
+    // print(base64.decoder
+    //     .convert(wavData.replaceAll('\n', '').replaceAll(' ', ''))
+    //     .length);
 
     if (await Permission.microphone.request().isGranted) {
       // Either the permission was already granted before or the user just granted it.
@@ -427,17 +504,36 @@ class _MyAppState extends State<MyApp> {
   }
 
   void listener(dynamic obj) {
+    captured++;
+    setState(() {});
+
     List<dynamic> list = obj;
     //data.add(list);
     // double sum=0;
     // for(var v in list) sum += v;
-    List<double> mul = [];
-    for (var v in list) mul.add(v * 256);
+    List<int> mul = [];
+    for (var v in list) mul.add((v * 256 * 256 as double).floor());
     recordedData.addAll(mul);
     // mul.sort();
     // mul = mul.reversed.toList();
-    // print('buf $mul');
+    //print('buf $mul');
     // print('buf ${list.length} $sum');
+
+    if (client != null) {
+      //client.write(from16bitsLittleEndian(mul));
+      client.add(from16bitsLittleEndian(mul));
+      writtenToClient++;
+      setState(() {});
+    }
+  }
+
+  Uint8List from16bitsLittleEndian(List<int> mul) {
+    Uint8List r = Uint8List(mul.length * 2);
+    ByteData bd = r.buffer.asByteData();
+    for (int i = 0; i < mul.length; i++) {
+      bd.setInt16(i * 2, mul[i]);
+    }
+    return r;
   }
 
   void onError(Object e) {
@@ -452,9 +548,23 @@ class _MyAppState extends State<MyApp> {
           title: const Text('Flutter Audio Capture Plugin'),
         ),
         body: Column(children: [
+          Text(
+              "myIp=$myIp  captured=$captured writtenToClient=$writtenToClient clientReceived=$clientReceived"),
+          TextFormField(
+            controller: ipEdit,
+            keyboardType: TextInputType.phone,
+          ),
           Expanded(
               child: Row(
             children: [
+              Expanded(
+                  child: Center(
+                      child: FloatingActionButton(
+                          onPressed: _startServer, child: Text("StrtSrv")))),
+              Expanded(
+                  child: Center(
+                      child: FloatingActionButton(
+                          onPressed: _startClient, child: Text("Conn")))),
               Expanded(
                   child: Center(
                       child: FloatingActionButton(
