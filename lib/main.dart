@@ -333,6 +333,46 @@ class Src extends StreamAudioSource {
   }
 }
 
+class SrcBlock extends StreamAudioSource {
+  List<Uint8List> dataFromSocket;
+
+  SrcBlock(this.dataFromSocket) : super("tag");
+
+  @override
+  Future<StreamAudioResponse> request([int start, int end]) async {
+    Uint8List data = base64.decoder
+        .convert(wavData.replaceAll('\n', '').replaceAll(' ', ''));
+
+    // For PCM, 16 bit audio data is stored little endian (intel format)
+// Create simple PCM WAV:
+// ffmpeg -i NicoA1.webm -t 1 -ar 8000 -ac 1 a.wav
+
+    int block = 0;
+    int blockI = 0;
+    for (int i = 0; i < 8000 * 2; i++) {
+      var d = dataFromSocket[block];
+      data[data.length - 8000 * 2 + i] = d[blockI];
+      if (blockI == d.length - 1) {
+        // last byte read
+        block++;
+        blockI = 0;
+      } else {
+        blockI++;
+      }
+    }
+
+    print(
+        "client play ${data.sublist(data.length - 8000 * 2, data.length - 8000 * 2 + 100)}");
+
+    return StreamAudioResponse(
+        sourceLength: data.length,
+        contentLength: data.length,
+        offset: 0,
+        stream: Stream.value(data),
+        contentType: "audio/wav");
+  }
+}
+
 // void pcmData(){
 //   Uint8List header = Uint8List(1000);
 //   int totalDataLen=500;
@@ -397,6 +437,8 @@ class _MyAppState extends State<MyApp> {
   int captured = 0;
   int writtenToClient = 0;
   int clientReceived = 0;
+  int clientPlayed = 0;
+  List<Uint8List> clientData = [];
   var ipEdit = new TextEditingController(text: "192.168.0.102");
   Socket client;
 
@@ -414,7 +456,17 @@ class _MyAppState extends State<MyApp> {
       socket.listen((Uint8List data) {
         clientReceived++;
         setState(() {});
-        print("client recv from socket: len=${data.length}");
+        print("client recv from socket: len=${data.length} $data");
+        clientData.add(data);
+        if (clientData.length > 20) {
+          final player = AudioPlayer();
+          //player.setAndroidAudioAttributes(AndroidAudioAttributes())
+          player.setAudioSource(SrcBlock(clientData));
+          player.play();
+          clientData = [];
+          clientPlayed++;
+          setState(() {});
+        }
         // print("client recv from socket: " +
         //     new String.fromCharCodes(data).trim());
       }, onDone: () {
@@ -531,8 +583,9 @@ class _MyAppState extends State<MyApp> {
     Uint8List r = Uint8List(mul.length * 2);
     ByteData bd = r.buffer.asByteData();
     for (int i = 0; i < mul.length; i++) {
-      bd.setInt16(i * 2, mul[i]);
+      bd.setInt16(i * 2, mul[i], Endian.little);
     }
+    print("from16bitsLittleEndian ${mul.sublist(0, 10)} ${r.sublist(0, 20)}");
     return r;
   }
 
@@ -549,7 +602,7 @@ class _MyAppState extends State<MyApp> {
         ),
         body: Column(children: [
           Text(
-              "myIp=$myIp  captured=$captured writtenToClient=$writtenToClient clientReceived=$clientReceived"),
+              "myIp=$myIp  captured=$captured writtenToClient=$writtenToClient clientReceived=$clientReceived clientPlayed=$clientPlayed"),
           TextFormField(
             controller: ipEdit,
             keyboardType: TextInputType.phone,
