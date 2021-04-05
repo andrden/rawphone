@@ -9,37 +9,15 @@ import 'dart:async';
 import 'package:flutter_audio_capture/flutter_audio_capture.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:rawphone/util.dart';
 
 // flutter build apk --split-per-abi
 
 void main() => runApp(MyApp());
 
 List<int> recordedData = [];
-Socket audioPlayerSocket;
+//Socket audioPlayerSocket;
 const AUDIO_SRV_PORT = 4566;
-
-Uint8List wavFileHeader(int soundDataLen) {
-  // http://soundfile.sapp.org/doc/WaveFormat/
-  var ret = Uint8List(4 * 11);
-  var bd = ret.buffer.asByteData();
-  bd.setUint32(0, 0x52494646, Endian.big); // RIFF
-  bd.setUint32(4, 36 + soundDataLen, Endian.little);
-  bd.setUint32(8, 0x57415645, Endian.big); // WAVE
-  bd.setUint32(12, 0x666d7420, Endian.big); // 'fmt '
-  bd.setUint32(16, 16, Endian.little); // 16 bytes len of 'fmt ' subchunk
-  bd.setUint32(20, 0x01000100, Endian.big); // PCM = 1 MONO=1 channel
-  bd.setUint32(24, 8000, Endian.little); // sample rate
-  bd.setUint32(28, 2 * 8000, Endian.little); // byte rate
-  bd.setUint32(
-      32,
-      0x02001000,
-      Endian
-          .big); // 2=BlockAlign       == NumChannels * BitsPerSample/8;  16 = BitsPerSample
-  bd.setUint32(36, 0x64617461, Endian.big); // 'data'
-  bd.setUint32(40, soundDataLen, Endian.little);
-
-  return ret;
-}
 
 Stream<Uint8List> timedCounter(Duration interval, [int maxCount]) async* {
   yield wavFileHeader(1000 * 1000 * 1000);
@@ -206,67 +184,6 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
-  Uint8List tone(double freq, int millis) {
-    int ticks = (8000 * millis / 1000.0).round();
-    Uint8List b = Uint8List(ticks * 2);
-    var bd = b.buffer.asByteData();
-    for (int i = 0; i < ticks; i++) {
-      bd.setInt16(
-          i * 2, (50 + sin(i / 8000.0 * freq * 2 * pi) * 50).floor() * 256, Endian.little);
-    }
-    return b;
-  }
-
-  void startAudioServer() async {
-    ServerSocket server = await ServerSocket.bind(
-        InternetAddress.anyIPv4, AUDIO_SRV_PORT,
-        shared: true);
-
-    StreamSubscription<Socket> subscription;
-    subscription = server.listen((Socket client) async {
-      print("client connection to audio server on $AUDIO_SRV_PORT");
-      client.write(
-          "HTTP/1.1 200 OK\r\nContent-type: audio/wav\r\nContent-Length: 1000000044\r\n\r\n"); // practically unlimited
-      client.add(wavFileHeader(1000 * 1000 * 1000)); // practically unlimited
-      audioPlayerSocket = client;
-
-      client.add(tone(500, 2000));
-      if (recordedData.length > 0) {
-        print("record data len=${recordedData.length}");
-        client.add(from16bitsLittleEndian(recordedData));
-      }
-      client.add(tone(500, 1000));
-      client.add(tone(1000, 1000));
-      await client.flush();
-      //await Future.delayed(Duration(seconds: 1500));
-      await client.close();
-      // await subscription.cancel();
-      await server.close();
-      // int i = 0;
-      // while (true) {
-      //   await Future.delayed(Duration(milliseconds: 1500));
-      //
-      //   var list2 = Uint8List(8000 * 2);
-      //   var byteData2 = list2.buffer.asByteData();
-      //   for (int j = 0; j < 8000; j++) {
-      //     int globalIdx = i * 8000 + j;
-      //     byteData2.setInt16(
-      //         j * 2,
-      //         (50 + sin(globalIdx * (1 + globalIdx / 50000)) * 50).floor() *
-      //             256,
-      //         Endian.little);
-      //   }
-      //
-      //   client.add(list2);
-      //   // if(recordedData.length>i){
-      //   //   List<int> rec = recordedData[i];
-      //   //   client.add(from16bitsLittleEndian(rec));
-      //   // }
-      //   i++;
-      // }
-    });
-  }
-
   void _startServer() {
     _retrieveIPAddress().then((value) {
       print("_retrieveIPAddress $value");
@@ -315,18 +232,20 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _startTestCapture() async {
-    // print(wavData.substring(0, 300).replaceAll('\n', '').replaceAll(' ', ''));
-    // print(base64.decoder
-    //     .convert(wavData.replaceAll('\n', '').replaceAll(' ', ''))
-    //     .length);
-
     if (await Permission.microphone.request().isGranted) {
       // Either the permission was already granted before or the user just granted it.
       print('mike granted');
     }
     recordedData = [];
     //await _plugin.start(listener, onError, sampleRate: 16000, bufferSize: 30000);
-    await _plugin.start(listener, onError, sampleRate: 8000, bufferSize: 30000);
+    await _plugin.start((dynamic obj) {
+      captured++;
+      setState(() {});
+      List<dynamic> list = obj;
+      List<int> mul = [];
+      for (var v in list) mul.add((v * 256 * 256 as double).floor());
+      recordedData.addAll(mul);
+    }, onError, sampleRate: 8000, bufferSize: 30000);
     for (int i = 0; i < 3; i++) {
       message = "Microphone test: 3 seconds recording...$i";
       setState(() {});
@@ -334,23 +253,15 @@ class _MyAppState extends State<MyApp> {
     }
     message = "";
     setState(() {});
-    await _stopCapture();
-  }
-
-  Future<void> _stopCapture() async {
-    // var len = 0;
-    // for (var d in data) {
-    //   len += d.length;
-    // }
-    // print("data.len ${data.length} $len");
     await _plugin.stop();
-    await startAudioServer();
-
-    final player = AudioPlayer();
-    player.setUrl("http://localhost:$AUDIO_SRV_PORT");
-    //player.setAndroidAudioAttributes(AndroidAudioAttributes())
-    //player.setAudioSource(Src("tag"));
-    player.play();
+    if (recordedData.length > 0) {
+      print("record  data len=${recordedData.length}");
+      await startAudioServerForTestRecording(
+          AUDIO_SRV_PORT, from16bitsLittleEndian(recordedData));
+      final player = AudioPlayer();
+      player.setUrl("http://localhost:$AUDIO_SRV_PORT");
+      player.play();
+    }
   }
 
   void listener(dynamic obj) {
@@ -375,16 +286,6 @@ class _MyAppState extends State<MyApp> {
       writtenToClient++;
       setState(() {});
     }
-  }
-
-  Uint8List from16bitsLittleEndian(List<int> mul) {
-    Uint8List r = Uint8List(mul.length * 2);
-    ByteData bd = r.buffer.asByteData();
-    for (int i = 0; i < mul.length; i++) {
-      bd.setInt16(i * 2, mul[i], Endian.little);
-    }
-    print("from16bitsLittleEndian ${mul.sublist(0, 10)} ${r.sublist(0, 20)}");
-    return r;
   }
 
   void onError(Object e) {
