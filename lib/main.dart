@@ -16,6 +16,7 @@ void main() => runApp(MyApp());
 
 List<int> recordedData = [];
 Socket audioPlayerSocket;
+const AUDIO_SRV_PORT = 4566;
 
 Uint8List wavFileHeader(int soundDataLen) {
   // http://soundfile.sapp.org/doc/WaveFormat/
@@ -166,6 +167,7 @@ class _MyAppState extends State<MyApp> {
   List<Uint8List> clientData = [];
   var ipEdit = new TextEditingController(text: "192.168.0.102");
   Socket client;
+  String message = '';
 
   // @override
   // void initState() {
@@ -204,41 +206,64 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
-  void startAudioServer() async {
-    ServerSocket server =
-        await ServerSocket.bind(InternetAddress.anyIPv4, 4568, shared: true);
+  Uint8List tone(double freq, int millis) {
+    int ticks = (8000 * millis / 1000.0).round();
+    Uint8List b = Uint8List(ticks * 2);
+    var bd = b.buffer.asByteData();
+    for (int i = 0; i < ticks; i++) {
+      bd.setInt16(
+          i * 2, (50 + sin(i / 8000.0 * freq * 2 * pi) * 50).floor() * 256, Endian.little);
+    }
+    return b;
+  }
 
-    server.listen((Socket client) async {
+  void startAudioServer() async {
+    ServerSocket server = await ServerSocket.bind(
+        InternetAddress.anyIPv4, AUDIO_SRV_PORT,
+        shared: true);
+
+    StreamSubscription<Socket> subscription;
+    subscription = server.listen((Socket client) async {
+      print("client connection to audio server on $AUDIO_SRV_PORT");
       client.write(
           "HTTP/1.1 200 OK\r\nContent-type: audio/wav\r\nContent-Length: 1000000044\r\n\r\n"); // practically unlimited
       client.add(wavFileHeader(1000 * 1000 * 1000)); // practically unlimited
       audioPlayerSocket = client;
 
+      client.add(tone(500, 2000));
       if (recordedData.length > 0) {
+        print("record data len=${recordedData.length}");
         client.add(from16bitsLittleEndian(recordedData));
       }
-      int i = 0;
-      while (true) {
-        await Future.delayed(Duration(microseconds: 1500));
-
-        var list2 = Uint8List(8000 * 2);
-        var byteData2 = list2.buffer.asByteData();
-        for (int j = 0; j < 8000; j++) {
-          int globalIdx = i * 8000 + j;
-          byteData2.setInt16(
-              j * 2,
-              (50 + sin(globalIdx * (1 + globalIdx / 50000)) * 50).floor() *
-                  256,
-              Endian.little);
-        }
-
-        client.add(list2);
-        // if(recordedData.length>i){
-        //   List<int> rec = recordedData[i];
-        //   client.add(from16bitsLittleEndian(rec));
-        // }
-        i++;
-      }
+      client.add(tone(500, 100));
+      client.add(tone(1000, 100));
+      await client.flush();
+      //await Future.delayed(Duration(seconds: 1500));
+      await client.close();
+      // await subscription.cancel();
+      await server.close();
+      // int i = 0;
+      // while (true) {
+      //   await Future.delayed(Duration(milliseconds: 1500));
+      //
+      //   var list2 = Uint8List(8000 * 2);
+      //   var byteData2 = list2.buffer.asByteData();
+      //   for (int j = 0; j < 8000; j++) {
+      //     int globalIdx = i * 8000 + j;
+      //     byteData2.setInt16(
+      //         j * 2,
+      //         (50 + sin(globalIdx * (1 + globalIdx / 50000)) * 50).floor() *
+      //             256,
+      //         Endian.little);
+      //   }
+      //
+      //   client.add(list2);
+      //   // if(recordedData.length>i){
+      //   //   List<int> rec = recordedData[i];
+      //   //   client.add(from16bitsLittleEndian(rec));
+      //   // }
+      //   i++;
+      // }
     });
   }
 
@@ -259,7 +284,7 @@ class _MyAppState extends State<MyApp> {
         '${client.remoteAddress.address}:${client.remotePort}');
 
     this.client = client;
-    _startCapture();
+    _startTestCapture();
     // client.write("Hello from simple server!\n");
     // client.close();
   }
@@ -289,7 +314,7 @@ class _MyAppState extends State<MyApp> {
     return ret;
   }
 
-  Future<void> _startCapture() async {
+  Future<void> _startTestCapture() async {
     // print(wavData.substring(0, 300).replaceAll('\n', '').replaceAll(' ', ''));
     // print(base64.decoder
     //     .convert(wavData.replaceAll('\n', '').replaceAll(' ', ''))
@@ -302,6 +327,14 @@ class _MyAppState extends State<MyApp> {
     recordedData = [];
     //await _plugin.start(listener, onError, sampleRate: 16000, bufferSize: 30000);
     await _plugin.start(listener, onError, sampleRate: 8000, bufferSize: 30000);
+    for (int i = 0; i < 3; i++) {
+      message = "Microphone test: 3 seconds recording...$i";
+      setState(() {});
+      await Future.delayed(Duration(seconds: 1));
+    }
+    message = "";
+    setState(() {});
+    await _stopCapture();
   }
 
   Future<void> _stopCapture() async {
@@ -314,7 +347,7 @@ class _MyAppState extends State<MyApp> {
     await startAudioServer();
 
     final player = AudioPlayer();
-    player.setUrl("http://localhost:4568");
+    player.setUrl("http://localhost:$AUDIO_SRV_PORT");
     //player.setAndroidAudioAttributes(AndroidAudioAttributes())
     //player.setAudioSource(Src("tag"));
     player.play();
@@ -372,6 +405,7 @@ class _MyAppState extends State<MyApp> {
             controller: ipEdit,
             keyboardType: TextInputType.phone,
           ),
+          Text("Message: $message"),
           Expanded(
               child: Row(
             children: [
@@ -385,12 +419,13 @@ class _MyAppState extends State<MyApp> {
                           onPressed: _startClient, child: Text("Conn")))),
               Expanded(
                   child: Center(
-                      child: FloatingActionButton(
-                          onPressed: _startCapture, child: Text("Start")))),
-              Expanded(
-                  child: Center(
-                      child: FloatingActionButton(
-                          onPressed: _stopCapture, child: Text("Stop")))),
+                      child: ElevatedButton(
+                          onPressed: _startTestCapture,
+                          child: Text("Audio test (3 sec)")))),
+              // Expanded(
+              //     child: Center(
+              //         child: FloatingActionButton(
+              //             onPressed: _stopCapture, child: Text("Stop")))),
             ],
           ))
         ]),
