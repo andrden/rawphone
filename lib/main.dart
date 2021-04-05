@@ -235,8 +235,8 @@ class _MyAppState extends State<MyApp> {
         print("record data len=${recordedData.length}");
         client.add(from16bitsLittleEndian(recordedData));
       }
-      client.add(tone(500, 100));
-      client.add(tone(1000, 100));
+      client.add(tone(500, 1000));
+      client.add(tone(1000, 1000));
       await client.flush();
       //await Future.delayed(Duration(seconds: 1500));
       await client.close();
