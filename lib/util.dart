@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
@@ -33,7 +32,9 @@ Uint8List tone(double freq, int millis) {
   var bd = b.buffer.asByteData();
   for (int i = 0; i < ticks; i++) {
     bd.setInt16(
-        i * 2, (50 + sin(i / 8000.0 * freq * 2 * pi) * 50).floor() * 256, Endian.little);
+        i * 2,
+        (50 + sin(i / 8000.0 * freq * 2 * pi) * 50).floor() * 256,
+        Endian.little);
   }
   return b;
 }
@@ -49,26 +50,31 @@ Uint8List from16bitsLittleEndian(List<int> mul) {
 }
 
 void startAudioServerForTestRecording(int port, Uint8List recording) async {
-  ServerSocket server = await ServerSocket.bind(
-      InternetAddress.anyIPv4, port,
-      shared: true);
+  ServerSocket server =
+      await ServerSocket.bind(InternetAddress.anyIPv4, port, shared: true);
 
-  StreamSubscription<Socket> subscription;
-  subscription = server.listen((Socket client) async {
-    print("client connection to audio server on $port");
-    client.write(
-        "HTTP/1.1 200 OK\r\nContent-type: audio/wav\r\nContent-Length: 1000000044\r\n\r\n"); // practically unlimited
-    client.add(wavFileHeader(1000 * 1000 * 1000)); // practically unlimited
+  print("wait for client connection to audio server on $port");
+  Socket client = await server.single;
 
-    client.add(tone(1000, 100));
-    client.add(tone(500, 100));
-    client.add(recording);
-    client.add(tone(500, 100));
-    client.add(tone(1000, 100));
-    await Future.delayed(Duration(seconds: 1500));
-    await client.flush();
-    await client.close();
-    // await subscription.cancel();
-    await server.close();
-  });
+  // StreamSubscription<Socket> subscription;
+  // subscription = server.listen((Socket client) async {
+  print("client connection to audio server on $port");
+  // await subscription.cancel();
+  serveClient(client, recording).then((value) => server.close());
+}
+
+Future<void> serveClient(Socket client, Uint8List recording) async {
+  client.write(
+      "HTTP/1.1 200 OK\r\nContent-type: audio/wav\r\nContent-Length: 1000000044\r\n\r\n"); // practically unlimited
+  client.add(wavFileHeader(1000 * 1000 * 1000)); // practically unlimited
+
+  client.add(tone(1000, 100));
+  client.add(tone(500, 100));
+  client.add(recording);
+  await Future.delayed(Duration(seconds: 100));
+  client.add(tone(500, 100));
+  client.add(tone(1000, 100));
+  await Future.delayed(Duration(seconds: 1500));
+  await client.flush();
+  await client.close();
 }

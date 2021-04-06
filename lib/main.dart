@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 
 import 'package:flutter_audio_capture/flutter_audio_capture.dart';
@@ -231,7 +232,12 @@ class _MyAppState extends State<MyApp> {
     return ret;
   }
 
+  static const platform = const MethodChannel('samples.flutter.dev/battery');
   Future<void> _startTestCapture() async {
+    final int result = await platform.invokeMethod('getBatteryLevel');
+    String batteryLevel = 'Battery level at $result % .';
+    print(batteryLevel);
+
     if (await Permission.microphone.request().isGranted) {
       // Either the permission was already granted before or the user just granted it.
       print('mike granted');
