@@ -35,6 +35,7 @@ class _MyAppState extends State<MyApp> {
   var ipEdit = new TextEditingController(text: "192.168.0.102");
   String message = '';
   Socket clientSocket;
+  Socket outgoingClientSocket;
 
   @override
   void initState() {
@@ -45,6 +46,8 @@ class _MyAppState extends State<MyApp> {
 
   void _startClient() {
     Socket.connect(ipEdit.text, PORT).then((socket) {
+      outgoingClientSocket = socket;
+      setState(() {});
       print('Connected to: '
           '${socket.remoteAddress.address}:${socket.remotePort}');
 
@@ -52,14 +55,21 @@ class _MyAppState extends State<MyApp> {
       socket.listen((Uint8List data) {
         clientReceived++;
         setState(() {});
-        print("client recv from socket: len=${data.length} $data");
+        //print("client recv from socket: len=${data.length} $data");
         platform.invokeMethod('writeAudioBytes', <String, dynamic>{
           'bytes': data,
         });
+      }, onError: (error) {
+        print(error);
+        socket.destroy();
+        outgoingClientSocket = null;
+        setState(() {});
       }, onDone: () {
         print("Done");
         socket.destroy();
-      });
+        outgoingClientSocket = null;
+        setState(() {});
+      }, cancelOnError: true);
 
       //Send the request
       //socket.write(indexRequest);
@@ -88,6 +98,28 @@ class _MyAppState extends State<MyApp> {
     if (await Permission.microphone.request().isGranted) {
       print('mike granted');
     }
+
+    client.listen(
+      (Uint8List data) {},
+// handle errors
+      onError: (error) {
+        print(error);
+        client.close();
+        clientSocket = null;
+        _audioCapture.stop();
+        setState(() {});
+      },
+
+      // handle the client closing the connection
+      onDone: () {
+        print('Client left');
+        client.close();
+        clientSocket = null;
+        _audioCapture.stop();
+        setState(() {});
+      },
+    );
+
     //await _plugin.start(listener, onError, sampleRate: 16000, bufferSize: 30000);
     await _audioCapture.start((dynamic obj) {
       captured++;
@@ -171,77 +203,113 @@ class _MyAppState extends State<MyApp> {
           title: const Text('Direct Phone over Internet'),
         ),
         body: Column(children: [
-          Expanded(
-              child: Center(
-                  child: myServerIp == ''
-                      ? ElevatedButton(
-                          onPressed: _startServer,
-                          child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.power_settings_new,
-                                  size: 48,
-                                  color: Colors.lightGreenAccent,
-                                ),
-                                Text(
-                                  "START",
-                                  textScaleFactor: 4,
-                                )
-                              ]))
-                      : Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              "Listening over Internet...",
-                              textScaleFactor: 2,
-                            ),
-                            Text(''),
-                            Text(
-                              "Now connect the other device to:",
-                              textScaleFactor: 1.5,
-                            ),
-                            Text(
-                              myServerIp,
-                              textScaleFactor: 4,
-                            )
-                          ],
-                        ))),
+          if (outgoingClientSocket == null)
+            Expanded(
+                child: Center(
+                    child: myServerIp == ''
+                        ? ElevatedButton(
+                            onPressed: _startServer,
+                            child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.power_settings_new,
+                                    size: 48,
+                                    color: Colors.lightGreenAccent,
+                                  ),
+                                  Text(
+                                    "START",
+                                    textScaleFactor: 4,
+                                  )
+                                ]))
+                        : Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                "Listening over Internet...",
+                                textScaleFactor: 2,
+                              ),
+                              Text(''),
+                              Text(
+                                "Now connect the other device to:",
+                                textScaleFactor: 1.5,
+                              ),
+                              Text(
+                                myServerIp,
+                                textScaleFactor: 4,
+                              )
+                            ],
+                          ))),
           if (clientSocket != null)
             Expanded(
                 child: Column(
               children: [
                 Text(
-                  "Call in progress...",
+                  "Incoming Call in progress...",
                   textScaleFactor: 2,
                 ),
-                IconButton(
+                ElevatedButton(
                     onPressed: () {
                       clientSocket.close();
                       clientSocket = null;
                       setState(() {});
                       _audioCapture.stop();
                     },
-                    icon: Icon(
+                    child: Icon(
                       Icons.phone_disabled,
                       color: Colors.red,
-                      size: 48,
+                      size: 72,
                     ))
               ],
             )),
-          Expanded(
-              child: Center(
-            child: Text(
+          if (outgoingClientSocket != null)
+            Expanded(
+                child: Column(
+              children: [
+                Text(
+                  "",
+                  textScaleFactor: 2,
+                ),
+                Text(
+                  "Outgoing Call in progress...",
+                  textScaleFactor: 2,
+                ),
+                Text(''),
+                ElevatedButton(
+                    onPressed: () {
+                      if (outgoingClientSocket != null) {
+                        //outgoingClientSocket.close();
+                        outgoingClientSocket.destroy();
+                        outgoingClientSocket = null;
+                        setState(() {});
+                      }
+                      //_audioCapture.stop();
+                    },
+                    child: Icon(
+                      Icons.phone_disabled,
+                      color: Colors.red,
+                      size: 72,
+                    ))
+              ],
+            )),
+
+          if (outgoingClientSocket == null)
+            Text(
               "or",
               textScaleFactor: 2,
             ),
-          )),
+          Text(
+            '',
+            textScaleFactor: 2,
+          ),
           Expanded(
               child: Center(
                   child: Column(children: [
             ElevatedButton(
-                onPressed: myServerIp == '' ? _startClient : null,
+                onPressed: myServerIp == '' && outgoingClientSocket == null
+                    ? _startClient
+                    : null,
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   Icon(
                     Icons.power,
@@ -268,7 +336,12 @@ class _MyAppState extends State<MyApp> {
                   SizedBox(
                       width: 350,
                       child: TextFormField(
-                        style: TextStyle(fontSize: 48),
+                        enabled: outgoingClientSocket == null,
+                        style: TextStyle(
+                            fontSize: 48,
+                            color: outgoingClientSocket == null
+                                ? Colors.black
+                                : Colors.blueGrey),
                         controller: ipEdit,
                         keyboardType: TextInputType.phone,
                       ))
@@ -282,7 +355,9 @@ class _MyAppState extends State<MyApp> {
                   child: Center(
                       child: ElevatedButton(
                           onPressed:
-                              myServerIp == '' ? _startTestCapture : null,
+                              myServerIp == '' && outgoingClientSocket == null
+                                  ? _startTestCapture
+                                  : null,
                           child: Text("Audio test (3 sec)")))),
             ],
           )),
