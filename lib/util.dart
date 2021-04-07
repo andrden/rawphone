@@ -45,7 +45,7 @@ Uint8List from16bitsLittleEndian(List<int> mul) {
   for (int i = 0; i < mul.length; i++) {
     bd.setInt16(i * 2, mul[i], Endian.little);
   }
-  print("from16bitsLittleEndian ${mul.sublist(0, 10)} ${r.sublist(0, 20)}");
+  //print("from16bitsLittleEndian ${mul.sublist(0, 10)} ${r.sublist(0, 20)}");
   return r;
 }
 

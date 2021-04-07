@@ -13,7 +13,7 @@ import 'package:rawphone/util.dart';
 
 void main() => runApp(MyApp());
 
-List<int> recordedData = [];
+const PORT = 4567;
 
 class MyApp extends StatefulWidget {
   @override
@@ -21,15 +21,13 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  FlutterAudioCapture _plugin = new FlutterAudioCapture();
+  FlutterAudioCapture _audioCapture = new FlutterAudioCapture();
   String myIp = '';
   int captured = 0;
   int writtenToClient = 0;
   int clientReceived = 0;
   int clientPlayed = 0;
-  List<Uint8List> clientData = [];
   var ipEdit = new TextEditingController(text: "192.168.0.102");
-  Socket client;
   String message = '';
 
   @override
@@ -39,7 +37,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _startClient() {
-    Socket.connect(ipEdit.text, 4567).then((socket) {
+    Socket.connect(ipEdit.text, PORT).then((socket) {
       print('Connected to: '
           '${socket.remoteAddress.address}:${socket.remotePort}');
 
@@ -48,18 +46,9 @@ class _MyAppState extends State<MyApp> {
         clientReceived++;
         setState(() {});
         print("client recv from socket: len=${data.length} $data");
-        clientData.add(data);
-        if (clientData.length > 20) {
-          // final player = AudioPlayer();
-          // //player.setAndroidAudioAttributes(AndroidAudioAttributes())
-          // //player.setAudioSource(SrcBlock(clientData));
-          // player.play();
-          clientData = [];
-          clientPlayed++;
-          setState(() {});
-        }
-        // print("client recv from socket: " +
-        //     new String.fromCharCodes(data).trim());
+        platform.invokeMethod('writeAudioBytes', <String, dynamic>{
+          'bytes': data,
+        });
       }, onDone: () {
         print("Done");
         socket.destroy();
@@ -76,20 +65,32 @@ class _MyAppState extends State<MyApp> {
       myIp = value.address;
       setState(() {});
     });
-    ServerSocket.bind(InternetAddress.anyIPv4, 4567, shared: true)
+    ServerSocket.bind(InternetAddress.anyIPv4, PORT, shared: true)
         .then((ServerSocket server) {
       server.listen(handleClient);
     });
   }
 
-  void handleClient(Socket client) {
-    print('Connection from '
-        '${client.remoteAddress.address}:${client.remotePort}');
+  void handleClient(Socket client) async {
+    message = 'Connection from '
+        '${client.remoteAddress.address}:${client.remotePort}';
+    setState(() {});
+    print(message);
 
-    this.client = client;
-    _startTestCapture();
-    // client.write("Hello from simple server!\n");
-    // client.close();
+    if (await Permission.microphone.request().isGranted) {
+      print('mike granted');
+    }
+    //await _plugin.start(listener, onError, sampleRate: 16000, bufferSize: 30000);
+    await _audioCapture.start((dynamic obj) {
+      captured++;
+      setState(() {});
+      List<dynamic> list = obj;
+      List<int> mul = [];
+      for (var v in list) mul.add((v * 256 * 256 as double).floor());
+      client.add(from16bitsLittleEndian(mul));
+      writtenToClient++;
+      setState(() {});
+    }, onError, sampleRate: 8000, bufferSize: 30000);
   }
 
   Future<InternetAddress> _retrieveIPAddress() async {
@@ -124,9 +125,9 @@ class _MyAppState extends State<MyApp> {
       // Either the permission was already granted before or the user just granted it.
       print('mike granted');
     }
-    recordedData = [];
+    List<int> recordedData = [];
     //await _plugin.start(listener, onError, sampleRate: 16000, bufferSize: 30000);
-    await _plugin.start((dynamic obj) {
+    await _audioCapture.start((dynamic obj) {
       captured++;
       setState(() {});
       List<dynamic> list = obj;
@@ -141,36 +142,12 @@ class _MyAppState extends State<MyApp> {
     }
     message = "";
     setState(() {});
-    await _plugin.stop();
+    await _audioCapture.stop();
     if (recordedData.length > 0) {
       print("record  data len=${recordedData.length}");
       await platform.invokeMethod('writeAudioBytes', <String, dynamic>{
         'bytes': from16bitsLittleEndian(recordedData),
       });
-    }
-  }
-
-  void listener(dynamic obj) {
-    captured++;
-    setState(() {});
-
-    List<dynamic> list = obj;
-    //data.add(list);
-    // double sum=0;
-    // for(var v in list) sum += v;
-    List<int> mul = [];
-    for (var v in list) mul.add((v * 256 * 256 as double).floor());
-    recordedData.addAll(mul);
-    // mul.sort();
-    // mul = mul.reversed.toList();
-    //print('buf $mul');
-    // print('buf ${list.length} $sum');
-
-    if (client != null) {
-      //client.write(from16bitsLittleEndian(mul));
-      client.add(from16bitsLittleEndian(mul));
-      writtenToClient++;
-      setState(() {});
     }
   }
 
@@ -209,10 +186,6 @@ class _MyAppState extends State<MyApp> {
                       child: ElevatedButton(
                           onPressed: _startTestCapture,
                           child: Text("Audio test (3 sec)")))),
-              // Expanded(
-              //     child: Center(
-              //         child: FloatingActionButton(
-              //             onPressed: _stopCapture, child: Text("Stop")))),
             ],
           ))
         ]),
