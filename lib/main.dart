@@ -1,15 +1,12 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'dart:async';
-
 import 'package:flutter_audio_capture/flutter_audio_capture.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:rawphone/util.dart';
 
 // flutter build apk --split-per-abi
@@ -17,119 +14,6 @@ import 'package:rawphone/util.dart';
 void main() => runApp(MyApp());
 
 List<int> recordedData = [];
-//Socket audioPlayerSocket;
-const AUDIO_SRV_PORT = 4566;
-
-Stream<Uint8List> timedCounter(Duration interval, [int maxCount]) async* {
-  yield wavFileHeader(1000 * 1000 * 1000);
-
-  int i = 0;
-  while (true) {
-    await Future.delayed(interval);
-
-    var list2 = Uint8List(8000 * 2);
-    var byteData2 = list2.buffer.asByteData();
-    for (int j = 0; j < 8000; j++) {
-      byteData2.setInt16(j * 2,
-          (50 + sin(j * (1 + i * 0.1)) * 50).floor() * 256, Endian.little);
-    }
-
-    yield list2;
-    if (i == maxCount) break;
-  }
-}
-
-class Src extends StreamAudioSource {
-  Src(tag) : super(tag);
-
-  @override
-  Future<StreamAudioResponse> request([int start, int end]) async {
-    // var data = base64.decoder
-    //     .convert(wavData.replaceAll('\n', '').replaceAll(' ', ''));
-
-    // For PCM, 16 bit audio data is stored little endian (intel format)
-// Create simple PCM WAV:
-// ffmpeg -i NicoA1.webm -t 1 -ar 8000 -ac 1 a.wav
-
-    // var byteData = data.buffer.asByteData();
-    // for (int i = 0; i < 8000; i++) {
-    //   byteData.setInt16(
-    //       data.length - 8000 * 2 + i * 2, recordedData[i], Endian.little);
-    //   // data[data.length - 8000 * 2 + i * 2] = 0;
-    //   // //data[data.length - 8000 * 2 + i * 2 + 1] = (50 + sin(i) * 50).floor();
-    //   // data[data.length - 8000 * 2 + i * 2 + 1] =
-    //   //     (50 + recordedData[i] / 256).round();
-    // }
-    //
-    // var b = BytesBuilder();
-    // var list2 = Uint8List(8000 * 2);
-    // var byteData2 = list2.buffer.asByteData();
-    // for (int i = 0; i < 8000; i++) {
-    //   byteData2.setInt16(
-    //       i * 2, (50 + sin(i*1.1) * 50).floor() * 256, Endian.little);
-    //   // data.add(0);
-    //   // data.add((50 + sin(i) * 50).floor());
-    // }
-    // //b.add(wavFileHeader(100*8000 * 2));
-    // b.add(wavFileHeader(1000*1000*1000));
-    // //b.add(data);
-    // b.add(list2);
-
-//    Uint8List allBytes = b.toBytes();
-    var res = StreamAudioResponse(
-        sourceLength: 1000 * 1000 * 1000,
-        //allBytes.length,
-        contentLength: 1000 * 1000 * 1000,
-        //allBytes.length,
-        offset: 0,
-        //stream: Stream.value(data),
-        //stream: Stream.value(allBytes),
-        stream: timedCounter(Duration(microseconds: 500)),
-        contentType: "audio/wav");
-    return res;
-  }
-}
-
-// class SrcBlock extends StreamAudioSource {
-//   List<Uint8List> dataFromSocket;
-//
-//   SrcBlock(this.dataFromSocket) : super("tag");
-//
-//   @override
-//   Future<StreamAudioResponse> request([int start, int end]) async {
-//     // Uint8List data = base64.decoder
-//     //     .convert(wavData.replaceAll('\n', '').replaceAll(' ', ''));
-//
-//     // For PCM, 16 bit audio data is stored little endian (intel format)
-// // Create simple PCM WAV:
-// // ffmpeg -i NicoA1.webm -t 1 -ar 8000 -ac 1 a.wav
-//
-//     int block = 0;
-//     int blockI = 0;
-//     for (int i = 0; i < 8000 * 2; i++) {
-//       var d = dataFromSocket[block];
-//       data[data.length - 8000 * 2 + i] = d[blockI];
-//       if (blockI == d.length - 1) {
-//         // last byte read
-//         block++;
-//         blockI = 0;
-//       } else {
-//         blockI++;
-//       }
-//     }
-//
-//     print(
-//         "client play ${data.sublist(
-//             data.length - 8000 * 2, data.length - 8000 * 2 + 100)}");
-//
-//     return StreamAudioResponse(
-//         sourceLength: data.length,
-//         contentLength: data.length,
-//         offset: 0,
-//         stream: Stream.value(data),
-//         contentType: "audio/wav");
-//   }
-// }
 
 class MyApp extends StatefulWidget {
   @override
@@ -148,10 +32,11 @@ class _MyAppState extends State<MyApp> {
   Socket client;
   String message = '';
 
-  // @override
-  // void initState() {
-  //   super.initState();
-  // }
+  @override
+  void initState() {
+    super.initState();
+    /*await*/ platform.invokeMethod('initAudioTrack');
+  }
 
   void _startClient() {
     Socket.connect(ipEdit.text, 4567).then((socket) {
@@ -165,10 +50,10 @@ class _MyAppState extends State<MyApp> {
         print("client recv from socket: len=${data.length} $data");
         clientData.add(data);
         if (clientData.length > 20) {
-          final player = AudioPlayer();
-          //player.setAndroidAudioAttributes(AndroidAudioAttributes())
-          //player.setAudioSource(SrcBlock(clientData));
-          player.play();
+          // final player = AudioPlayer();
+          // //player.setAndroidAudioAttributes(AndroidAudioAttributes())
+          // //player.setAudioSource(SrcBlock(clientData));
+          // player.play();
           clientData = [];
           clientPlayed++;
           setState(() {});
@@ -233,11 +118,8 @@ class _MyAppState extends State<MyApp> {
   }
 
   static const platform = const MethodChannel('samples.flutter.dev/battery');
-  Future<void> _startTestCapture() async {
-    final int result = await platform.invokeMethod('getBatteryLevel');
-    String batteryLevel = 'Battery level at $result % .';
-    print(batteryLevel);
 
+  Future<void> _startTestCapture() async {
     if (await Permission.microphone.request().isGranted) {
       // Either the permission was already granted before or the user just granted it.
       print('mike granted');
@@ -262,11 +144,9 @@ class _MyAppState extends State<MyApp> {
     await _plugin.stop();
     if (recordedData.length > 0) {
       print("record  data len=${recordedData.length}");
-      await startAudioServerForTestRecording(
-          AUDIO_SRV_PORT, from16bitsLittleEndian(recordedData));
-      final player = AudioPlayer();
-      player.setUrl("http://localhost:$AUDIO_SRV_PORT");
-      player.play();
+      await platform.invokeMethod('writeAudioBytes', <String, dynamic>{
+        'bytes': from16bitsLittleEndian(recordedData),
+      });
     }
   }
 

@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioFormat
+import android.media.AudioManager
+import android.media.AudioTrack
 import android.os.BatteryManager
 import android.os.Build.VERSION
 import android.os.Build.VERSION_CODES
@@ -14,12 +17,40 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "samples.flutter.dev/battery"
+
+    private var audioTrack: AudioTrack? = null;
+
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler {
             // Note: this method is invoked on the main thread.
             call, result ->
-            if (call.method == "getBatteryLevel") {
+            if (call.method == "initAudioTrack") {
+                val bufsize = AudioTrack.getMinBufferSize(8000,
+                        AudioFormat.CHANNEL_OUT_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT);
+                val audio = AudioTrack(AudioManager.STREAM_MUSIC,
+                        8000, //sample rate
+                        AudioFormat.CHANNEL_OUT_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT, // 16-bit
+                        bufsize,
+                        AudioTrack.MODE_STREAM);
+                audio.play()
+                audioTrack = audio
+                result.success(0)
+            } else if (call.method == "writeAudioBytes") {
+                val bytes: ByteArray? = call.argument("bytes");
+                if (bytes != null) {
+                    audioTrack?.write(bytes, 0, bytes.size);
+                }
+                result.success(0)
+            } else if (call.method == "getBatteryLevel") {
+//                val bytes: ByteArray? = call.argument("bytes");
+//                if (bytes != null) {
+//                    play2(bytes);
+//                }
+                //play1()
+                //play1()
                 val batteryLevel = getBatteryLevel()
                 if (batteryLevel != -1) {
                     result.success(batteryLevel)
@@ -30,6 +61,30 @@ class MainActivity : FlutterActivity() {
                 result.notImplemented()
             }
         }
+    }
+
+    private fun play1() {
+        val bytes = ByteArray(8000 * 2);
+        for (i in 0..8000 - 1) {
+            bytes.set(i * 2 + 1, Math.floor(50.0 + 50.0 * Math.sin(i.toDouble())).toByte());
+        }
+
+        play2(bytes)
+    }
+
+    private fun play2(bytes: ByteArray) {
+        val bufsize = AudioTrack.getMinBufferSize(8000,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT);
+
+        val audio = AudioTrack(AudioManager.STREAM_MUSIC,
+                8000, //sample rate
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT, // 16-bit
+                bufsize,
+                AudioTrack.MODE_STREAM);
+        audio.play()
+        audio.write(bytes, 0, bytes.size);
     }
 
     private fun getBatteryLevel(): Int {

@@ -49,32 +49,3 @@ Uint8List from16bitsLittleEndian(List<int> mul) {
   return r;
 }
 
-void startAudioServerForTestRecording(int port, Uint8List recording) async {
-  ServerSocket server =
-      await ServerSocket.bind(InternetAddress.anyIPv4, port, shared: true);
-
-  print("wait for client connection to audio server on $port");
-  Socket client = await server.single;
-
-  // StreamSubscription<Socket> subscription;
-  // subscription = server.listen((Socket client) async {
-  print("client connection to audio server on $port");
-  // await subscription.cancel();
-  serveClient(client, recording).then((value) => server.close());
-}
-
-Future<void> serveClient(Socket client, Uint8List recording) async {
-  client.write(
-      "HTTP/1.1 200 OK\r\nContent-type: audio/wav\r\nContent-Length: 1000000044\r\n\r\n"); // practically unlimited
-  client.add(wavFileHeader(1000 * 1000 * 1000)); // practically unlimited
-
-  client.add(tone(1000, 100));
-  client.add(tone(500, 100));
-  client.add(recording);
-  await Future.delayed(Duration(seconds: 100));
-  client.add(tone(500, 100));
-  client.add(tone(1000, 100));
-  await Future.delayed(Duration(seconds: 1500));
-  await client.flush();
-  await client.close();
-}
