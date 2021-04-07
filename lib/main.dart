@@ -11,7 +11,12 @@ import 'package:rawphone/util.dart';
 
 // flutter build apk --split-per-abi
 
-void main() => runApp(MyApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setPreferredOrientations(
+      [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]);
+  runApp(MyApp());
+}
 
 const PORT = 4567;
 
@@ -22,18 +27,20 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   FlutterAudioCapture _audioCapture = new FlutterAudioCapture();
-  String myIp = '';
+  String myServerIp = '';
   int captured = 0;
   int writtenToClient = 0;
   int clientReceived = 0;
   int clientPlayed = 0;
   var ipEdit = new TextEditingController(text: "192.168.0.102");
   String message = '';
+  Socket clientSocket;
 
   @override
   void initState() {
     super.initState();
-    /*await*/ platform.invokeMethod('initAudioTrack');
+    /*await*/
+    platform.invokeMethod('initAudioTrack');
   }
 
   void _startClient() {
@@ -62,7 +69,7 @@ class _MyAppState extends State<MyApp> {
   void _startServer() {
     _retrieveIPAddress().then((value) {
       print("_retrieveIPAddress $value");
-      myIp = value.address;
+      myServerIp = value.address;
       setState(() {});
     });
     ServerSocket.bind(InternetAddress.anyIPv4, PORT, shared: true)
@@ -74,6 +81,7 @@ class _MyAppState extends State<MyApp> {
   void handleClient(Socket client) async {
     message = 'Connection from '
         '${client.remoteAddress.address}:${client.remotePort}';
+    clientSocket = client;
     setState(() {});
     print(message);
 
@@ -160,34 +168,128 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('Flutter Audio Capture Plugin'),
+          title: const Text('Direct Phone over Internet'),
         ),
         body: Column(children: [
-          Text(
-              "myIp=$myIp  captured=$captured writtenToClient=$writtenToClient clientReceived=$clientReceived clientPlayed=$clientPlayed"),
-          TextFormField(
-            controller: ipEdit,
-            keyboardType: TextInputType.phone,
-          ),
-          Text("Message: $message"),
+          Expanded(
+              child: Center(
+                  child: myServerIp == ''
+                      ? ElevatedButton(
+                          onPressed: _startServer,
+                          child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.power_settings_new,
+                                  size: 48,
+                                  color: Colors.lightGreenAccent,
+                                ),
+                                Text(
+                                  "START",
+                                  textScaleFactor: 4,
+                                )
+                              ]))
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              "Listening over Internet...",
+                              textScaleFactor: 2,
+                            ),
+                            Text(''),
+                            Text(
+                              "Now connect the other device to:",
+                              textScaleFactor: 1.5,
+                            ),
+                            Text(
+                              myServerIp,
+                              textScaleFactor: 4,
+                            )
+                          ],
+                        ))),
+          if (clientSocket != null)
+            Expanded(
+                child: Column(
+              children: [
+                Text(
+                  "Call in progress...",
+                  textScaleFactor: 2,
+                ),
+                IconButton(
+                    onPressed: () {
+                      clientSocket.close();
+                      clientSocket = null;
+                      setState(() {});
+                      _audioCapture.stop();
+                    },
+                    icon: Icon(
+                      Icons.phone_disabled,
+                      color: Colors.red,
+                      size: 48,
+                    ))
+              ],
+            )),
+          Expanded(
+              child: Center(
+            child: Text(
+              "or",
+              textScaleFactor: 2,
+            ),
+          )),
+          Expanded(
+              child: Center(
+                  child: Column(children: [
+            ElevatedButton(
+                onPressed: myServerIp == '' ? _startClient : null,
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(
+                    Icons.power,
+                    size: 48,
+                    color: Colors.lightGreenAccent,
+                  ),
+                  Text(
+                    "CONNECT",
+                    textScaleFactor: 4,
+                  )
+                ])),
+            if (myServerIp == '')
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '',
+                    textScaleFactor: 2,
+                  ),
+                  Text(
+                    "Number:  ",
+                    textScaleFactor: 2,
+                  ),
+                  SizedBox(
+                      width: 350,
+                      child: TextFormField(
+                        style: TextStyle(fontSize: 48),
+                        controller: ipEdit,
+                        keyboardType: TextInputType.phone,
+                      ))
+                ],
+              ),
+          ]))),
           Expanded(
               child: Row(
             children: [
               Expanded(
                   child: Center(
-                      child: FloatingActionButton(
-                          onPressed: _startServer, child: Text("StrtSrv")))),
-              Expanded(
-                  child: Center(
-                      child: FloatingActionButton(
-                          onPressed: _startClient, child: Text("Conn")))),
-              Expanded(
-                  child: Center(
                       child: ElevatedButton(
-                          onPressed: _startTestCapture,
+                          onPressed:
+                              myServerIp == '' ? _startTestCapture : null,
                           child: Text("Audio test (3 sec)")))),
             ],
-          ))
+          )),
+          // myIp=$myIp
+          Text(
+              "captured=$captured writtenToClient=$writtenToClient clientReceived=$clientReceived clientPlayed=$clientPlayed"),
+          Text("Message: $message"),
         ]),
       ),
     );
