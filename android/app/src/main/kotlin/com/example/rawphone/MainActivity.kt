@@ -41,7 +41,7 @@ class MainActivity : FlutterActivity() {
             } else if (call.method == "writeAudioBytes") {
                 val bytes: ByteArray? = call.argument("bytes");
                 if (bytes != null) {
-                    audioTrack?.write(bytes, 0, bytes.size);
+                    audioTrack?.write(bytes, 0, bytes.size, AudioTrack.WRITE_NON_BLOCKING);
                 }
                 result.success(0)
             } else if (call.method == "getBatteryLevel") {

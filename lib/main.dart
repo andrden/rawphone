@@ -38,12 +38,21 @@ class _MyAppState extends State<MyApp> {
   Socket outgoingClientSocket;
   bool mikeOff = false;
   bool soundOff = false;
+  int lastDirty = 0;
 
   @override
   void initState() {
     super.initState();
     /*await*/
     platform.invokeMethod('initAudioTrack');
+  }
+
+  void markDirtyRateLimited() {
+    int seconds = (DateTime.now().millisecondsSinceEpoch / 1000).floor();
+    if (lastDirty != seconds) {
+      lastDirty = seconds;
+      setState(() {});
+    }
   }
 
   void _startClient() {
@@ -56,7 +65,7 @@ class _MyAppState extends State<MyApp> {
       //Establish the onData, and onDone callbacks
       socket.listen((Uint8List data) {
         clientReceived++;
-        setState(() {});
+        markDirtyRateLimited();
         //print("client recv from socket: len=${data.length} $data");
         if (!soundOff) {
           platform.invokeMethod('writeAudioBytes', <String, dynamic>{
@@ -82,7 +91,7 @@ class _MyAppState extends State<MyApp> {
           captured++;
           socket.add(capturedAudioToBytes(obj));
           writtenToClient++;
-          setState(() {});
+          markDirtyRateLimited();
         }
       }, onError, sampleRate: 8000, bufferSize: 30000);
     });
@@ -114,7 +123,7 @@ class _MyAppState extends State<MyApp> {
     client.listen(
       (Uint8List data) {
         clientReceived++;
-        setState(() {});
+        markDirtyRateLimited();
         //print("client recv from socket: len=${data.length} $data");
         if (!soundOff) {
           platform.invokeMethod('writeAudioBytes', <String, dynamic>{
@@ -145,10 +154,10 @@ class _MyAppState extends State<MyApp> {
     await _audioCapture.start((dynamic obj) {
       if (!mikeOff) {
         captured++;
-        setState(() {});
+        markDirtyRateLimited();
         client.add(capturedAudioToBytes(obj));
         writtenToClient++;
-        setState(() {});
+        markDirtyRateLimited();
       }
     }, onError, sampleRate: 8000, bufferSize: 30000);
   }
@@ -276,7 +285,7 @@ class _MyAppState extends State<MyApp> {
                   "Incoming Call in progress...",
                   textScaleFactor: 2,
                 ),
-                Row(children: [
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   ToggleButtons(
                     children: <Widget>[
                       Icon(Icons.mic_off),
@@ -289,6 +298,9 @@ class _MyAppState extends State<MyApp> {
                       });
                     },
                     isSelected: [mikeOff, soundOff],
+                  ),
+                  SizedBox(
+                    width: 16,
                   ),
                   ElevatedButton(
                       onPressed: () {
@@ -318,7 +330,7 @@ class _MyAppState extends State<MyApp> {
                   textScaleFactor: 2,
                 ),
                 Text(''),
-                Row(children: [
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   ToggleButtons(
                     children: <Widget>[
                       Icon(Icons.mic_off),
@@ -331,6 +343,9 @@ class _MyAppState extends State<MyApp> {
                       });
                     },
                     isSelected: [mikeOff, soundOff],
+                  ),
+                  SizedBox(
+                    width: 16,
                   ),
                   ElevatedButton(
                       onPressed: () {
