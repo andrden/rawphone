@@ -14,14 +14,27 @@ import android.os.Build.VERSION_CODES
 import androidx.annotation.NonNull
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.LinkedBlockingQueue
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "samples.flutter.dev/battery"
 
     private var audioTrack: AudioTrack? = null;
+    private val queue = LinkedBlockingQueue<ByteArray>();
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        Thread({
+            while(true) {
+                val bytes = queue.take();
+                audioTrack?.write(bytes, 0, bytes.size); // NON_BLOCKING loses some bytes, need retries to be correct
+                //audioTrack?.write(bytes, 0, bytes.size, AudioTrack.WRITE_NON_BLOCKING);
+            }
+        },"play-queu").start();
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler {
             // Note: this method is invoked on the main thread.
             call, result ->
@@ -41,7 +54,8 @@ class MainActivity : FlutterActivity() {
             } else if (call.method == "writeAudioBytes") {
                 val bytes: ByteArray? = call.argument("bytes");
                 if (bytes != null) {
-                    audioTrack?.write(bytes, 0, bytes.size, AudioTrack.WRITE_NON_BLOCKING);
+                    queue.add(bytes);
+                    //audioTrack?.write(bytes, 0, bytes.size, AudioTrack.WRITE_NON_BLOCKING);
                 }
                 result.success(0)
             } else if (call.method == "getBatteryLevel") {
@@ -63,29 +77,29 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun play1() {
-        val bytes = ByteArray(8000 * 2);
-        for (i in 0..8000 - 1) {
-            bytes.set(i * 2 + 1, Math.floor(50.0 + 50.0 * Math.sin(i.toDouble())).toByte());
-        }
-
-        play2(bytes)
-    }
-
-    private fun play2(bytes: ByteArray) {
-        val bufsize = AudioTrack.getMinBufferSize(8000,
-                AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_16BIT);
-
-        val audio = AudioTrack(AudioManager.STREAM_MUSIC,
-                8000, //sample rate
-                AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_16BIT, // 16-bit
-                bufsize,
-                AudioTrack.MODE_STREAM);
-        audio.play()
-        audio.write(bytes, 0, bytes.size);
-    }
+//    private fun play1() {
+//        val bytes = ByteArray(8000 * 2);
+//        for (i in 0..8000 - 1) {
+//            bytes.set(i * 2 + 1, Math.floor(50.0 + 50.0 * Math.sin(i.toDouble())).toByte());
+//        }
+//
+//        play2(bytes)
+//    }
+//
+//    private fun play2(bytes: ByteArray) {
+//        val bufsize = AudioTrack.getMinBufferSize(8000,
+//                AudioFormat.CHANNEL_OUT_MONO,
+//                AudioFormat.ENCODING_PCM_16BIT);
+//
+//        val audio = AudioTrack(AudioManager.STREAM_MUSIC,
+//                8000, //sample rate
+//                AudioFormat.CHANNEL_OUT_MONO,
+//                AudioFormat.ENCODING_PCM_16BIT, // 16-bit
+//                bufsize,
+//                AudioTrack.MODE_STREAM);
+//        audio.play()
+//        audio.write(bytes, 0, bytes.size);
+//    }
 
     private fun getBatteryLevel(): Int {
         val batteryLevel: Int
