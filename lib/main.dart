@@ -36,6 +36,8 @@ class _MyAppState extends State<MyApp> {
   String message = '';
   Socket clientSocket;
   Socket outgoingClientSocket;
+  bool mikeOff = false;
+  bool soundOff = false;
 
   @override
   void initState() {
@@ -56,23 +58,33 @@ class _MyAppState extends State<MyApp> {
         clientReceived++;
         setState(() {});
         //print("client recv from socket: len=${data.length} $data");
-        platform.invokeMethod('writeAudioBytes', <String, dynamic>{
-          'bytes': data,
-        });
+        if (!soundOff) {
+          platform.invokeMethod('writeAudioBytes', <String, dynamic>{
+            'bytes': data,
+          });
+        }
       }, onError: (error) {
         print(error);
         socket.destroy();
         outgoingClientSocket = null;
+        _audioCapture.stop();
         setState(() {});
       }, onDone: () {
         print("Done");
         socket.destroy();
         outgoingClientSocket = null;
+        _audioCapture.stop();
         setState(() {});
       }, cancelOnError: true);
 
-      //Send the request
-      //socket.write(indexRequest);
+      _audioCapture.start((dynamic obj) {
+        if (!mikeOff) {
+          captured++;
+          socket.add(capturedAudioToBytes(obj));
+          writtenToClient++;
+          setState(() {});
+        }
+      }, onError, sampleRate: 8000, bufferSize: 30000);
     });
   }
 
@@ -100,7 +112,16 @@ class _MyAppState extends State<MyApp> {
     }
 
     client.listen(
-      (Uint8List data) {},
+      (Uint8List data) {
+        clientReceived++;
+        setState(() {});
+        //print("client recv from socket: len=${data.length} $data");
+        if (!soundOff) {
+          platform.invokeMethod('writeAudioBytes', <String, dynamic>{
+            'bytes': data,
+          });
+        }
+      },
 // handle errors
       onError: (error) {
         print(error);
@@ -122,15 +143,21 @@ class _MyAppState extends State<MyApp> {
 
     //await _plugin.start(listener, onError, sampleRate: 16000, bufferSize: 30000);
     await _audioCapture.start((dynamic obj) {
-      captured++;
-      setState(() {});
-      List<dynamic> list = obj;
-      List<int> mul = [];
-      for (var v in list) mul.add((v * 256 * 256 as double).floor());
-      client.add(from16bitsLittleEndian(mul));
-      writtenToClient++;
-      setState(() {});
+      if (!mikeOff) {
+        captured++;
+        setState(() {});
+        client.add(capturedAudioToBytes(obj));
+        writtenToClient++;
+        setState(() {});
+      }
     }, onError, sampleRate: 8000, bufferSize: 30000);
+  }
+
+  Uint8List capturedAudioToBytes(dynamic obj) {
+    List<dynamic> list = obj;
+    List<int> mul = [];
+    for (var v in list) mul.add((v * 256 * 256 as double).floor());
+    return from16bitsLittleEndian(mul);
   }
 
   Future<InternetAddress> _retrieveIPAddress() async {
@@ -249,18 +276,33 @@ class _MyAppState extends State<MyApp> {
                   "Incoming Call in progress...",
                   textScaleFactor: 2,
                 ),
-                ElevatedButton(
-                    onPressed: () {
-                      clientSocket.close();
-                      clientSocket = null;
-                      setState(() {});
-                      _audioCapture.stop();
+                Row(children: [
+                  ToggleButtons(
+                    children: <Widget>[
+                      Icon(Icons.mic_off),
+                      Icon(Icons.volume_off),
+                    ],
+                    onPressed: (int index) {
+                      setState(() {
+                        if (index == 0) mikeOff = !mikeOff;
+                        if (index == 1) soundOff = !soundOff;
+                      });
                     },
-                    child: Icon(
-                      Icons.phone_disabled,
-                      color: Colors.red,
-                      size: 72,
-                    ))
+                    isSelected: [mikeOff, soundOff],
+                  ),
+                  ElevatedButton(
+                      onPressed: () {
+                        clientSocket.close();
+                        clientSocket = null;
+                        setState(() {});
+                        _audioCapture.stop();
+                      },
+                      child: Icon(
+                        Icons.phone_disabled,
+                        color: Colors.red,
+                        size: 72,
+                      )),
+                ])
               ],
             )),
           if (outgoingClientSocket != null)
@@ -276,21 +318,36 @@ class _MyAppState extends State<MyApp> {
                   textScaleFactor: 2,
                 ),
                 Text(''),
-                ElevatedButton(
-                    onPressed: () {
-                      if (outgoingClientSocket != null) {
-                        //outgoingClientSocket.close();
-                        outgoingClientSocket.destroy();
-                        outgoingClientSocket = null;
-                        setState(() {});
-                      }
-                      //_audioCapture.stop();
+                Row(children: [
+                  ToggleButtons(
+                    children: <Widget>[
+                      Icon(Icons.mic_off),
+                      Icon(Icons.volume_off),
+                    ],
+                    onPressed: (int index) {
+                      setState(() {
+                        if (index == 0) mikeOff = !mikeOff;
+                        if (index == 1) soundOff = !soundOff;
+                      });
                     },
-                    child: Icon(
-                      Icons.phone_disabled,
-                      color: Colors.red,
-                      size: 72,
-                    ))
+                    isSelected: [mikeOff, soundOff],
+                  ),
+                  ElevatedButton(
+                      onPressed: () {
+                        if (outgoingClientSocket != null) {
+                          //outgoingClientSocket.close();
+                          outgoingClientSocket.destroy();
+                          outgoingClientSocket = null;
+                          setState(() {});
+                        }
+                        //_audioCapture.stop();
+                      },
+                      child: Icon(
+                        Icons.phone_disabled,
+                        color: Colors.red,
+                        size: 72,
+                      )),
+                ]),
               ],
             )),
 
